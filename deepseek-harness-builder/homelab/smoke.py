@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Disposable real-image checks for password auth, origins and persistent cookies."""
 import argparse
+import base64
 from http.client import HTTPConnection
 from http.cookies import SimpleCookie
 import html
@@ -19,6 +20,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--image', default='homelab/dsh:latest')
     parser.add_argument('--template', type=Path, help='Test an updated adapter template against the built image')
+    parser.add_argument('--auth-mode', choices=['basic', 'caddy-security'], default='basic')
     args = parser.parse_args()
     name = 'dsh-homelab-smoke-' + secrets.token_hex(5)
     username, password = 'smoke-user', secrets.token_urlsafe(24)
@@ -32,6 +34,7 @@ def main():
         env.write_text('\n'.join([
             'PUBLIC_URL=' + origins[0], 'HOMELAB_PUBLIC_URLS=' + ','.join(origins),
             'AUTH_USERNAME=' + username, 'AUTH_PASSWORD=' + password,
+            'AUTH_MODE=' + args.auth_mode,
             'AUTH_COOKIE_INSECURE=true', 'AUTH_TOKEN_LIFETIME=2592000',
             'DSH_TRUSTED_HOSTS=lan.example.test:3080,zt.example.test:3080',
             'CADDY_TRUSTED_PROXIES=none', 'DSH_TELEMETRY_DISABLED=1']) + '\n')
@@ -45,14 +48,17 @@ def main():
             info = json.loads(docker('inspect', name).stdout)[0]
             port = int(info['NetworkSettings']['Ports']['8080/tcp'][0]['HostPort'])
             flags = {}
+            basic_credentials = None
             def request(origin, path='/', method='GET', jar=None, data=None, headers=None):
                 target = urlsplit(origin)
                 hdr = {'Host': target.netloc, **(headers or {})}
+                if basic_credentials is not None:
+                    hdr['Authorization'] = 'Basic ' + basic_credentials
                 if jar:
                     hdr['Cookie'] = '; '.join(k + '=' + v for k, v in jar.items())
-                body = urlencode(data).encode() if data is not None else None
+                body = data if isinstance(data, bytes) else urlencode(data).encode() if data is not None else None
                 if body is not None:
-                    hdr['Content-Type'] = 'application/x-www-form-urlencoded'
+                    hdr['Content-Type'] = 'application/json' if isinstance(data, bytes) else 'application/x-www-form-urlencoded'
                 conn = HTTPConnection('127.0.0.1', port, timeout=15)
                 conn.request(method, path, body=body, headers=hdr)
                 response = conn.getresponse()
@@ -107,6 +113,47 @@ def main():
                 docker('exec', '--user', 'node', name, *argv)
             print('PASS isolated Skill Python in direct and login shells', flush=True)
             assert request('http://evil.example:3080')[0] == 403
+            if args.auth_mode == 'basic':
+                good_jars = []
+                token = base64.b64encode((username + ':' + password).encode()).decode()
+                for origin in origins:
+                    jar = {}
+                    first = request(origin, jar=jar)
+                    assert first[0] == 401 and first[1]['www-authenticate'].startswith('Basic ')
+                    assert 'location' not in first[1], 'Basic auth must not redirect to a form'
+                    basic_credentials = base64.b64encode((username + ':wrong-password').encode()).decode()
+                    assert request(origin)[0] == 401
+                    basic_credentials = token
+                    page = follow(origin, request(origin, jar=jar), jar)
+                    assert page[0] == 200 and 'authentication required' not in page[2]
+                    assert any(k.startswith('dsh-auth-') for k in jar)
+                    assert 'DSH_ACCESS_TOKEN' not in jar, 'Portal must not issue JWTs in Basic mode'
+                    body = json.dumps({'type': 'client-request', 'rpcId': 'basic-smoke',
+                                       'method': 'session/modelCatalog', 'payload': {'args': {}}}).encode()
+                    assert json.loads(request(origin, '/api/session/modelCatalog', 'POST', jar, body)[2])['result']['ok']
+                    assert request(origin, '/api/session/modelCatalog', 'POST', jar, body,
+                                   {'Origin': 'http://evil.example'})[0] == 403
+                    for k in list(jar):
+                        if k.startswith('dsh-auth-'):
+                            del jar[k]
+                    jar['dsh-auth-stale'] = 'invalid'
+                    assert follow(origin, request(origin, jar=jar), jar)[0] == 200
+                    basic_credentials = None
+                    assert request(origin, jar=jar)[0] == 401, 'Native cookies cannot bypass Basic auth'
+                    assert request(origin, '/api/session/modelCatalog', 'POST', jar, body)[0] == 401
+                    assert request(origin, '/healthz')[0] == 200
+                    good_jars.append(jar)
+                    print('PASS browser challenge, password rejection, API, stale-cookie recovery and origin boundary: ' + origin, flush=True)
+                assert all(v['httponly'] for k, v in flags.items() if k.startswith('dsh-auth-'))
+                docker('restart', name)
+                restarted = json.loads(docker('inspect', name).stdout)[0]
+                port = int(restarted['NetworkSettings']['Ports']['8080/tcp'][0]['HostPort'])
+                ready()
+                basic_credentials = token
+                for origin, jar in zip(origins, good_jars):
+                    assert request(origin, jar=jar)[0] == 200
+                print('PASS native Basic auth and DSH persistence after restart', flush=True)
+                return
             good_jars = []
             for origin in origins:
                 jar = {}

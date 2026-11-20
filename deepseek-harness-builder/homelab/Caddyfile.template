@@ -10,46 +10,10 @@
 		client_ip_headers X-Forwarded-For
 	}
 
-	security {
-		local identity store dsh_local {
-			realm local
-			path {$AUTH_DB_PATH}
-			user {$AUTH_USERNAME} {
-				name "DeepSeek Harness User"
-				email dsh-user@local.invalid
-				password "{$AUTH_PASSWORD_HASH}" overwrite
-				roles authp/user
-			}
-		}
-
-		authentication portal dsh_portal {
-			crypto default token lifetime {$AUTH_TOKEN_LIFETIME}
-			crypto key sign-verify "{$AUTH_JWT_SECRET}"
-			enable identity store dsh_local
-			cookie path /
-			cookie lifetime {$AUTH_TOKEN_LIFETIME}
-			cookie samesite strict
-			cookie insecure {$AUTH_COOKIE_INSECURE}
-			set cookie name prefix DSH
-			@@HOMELAB_REDIRECTS@@
-			ui {
-				meta title "DeepSeek Harness Login"
-				meta author "DeepSeek Harness"
-				meta description "Sign in to DeepSeek Harness"
-				links {
-					"DeepSeek Harness" "{$PUBLIC_URL}" icon "las la-terminal"
-				}
-			}
-		}
-
-		authorization policy dsh_policy {
-			set auth url /auth/
-			set access_token cookie name DSH_ACCESS_TOKEN
-			crypto key verify "{$AUTH_JWT_SECRET}"
-			allow roles authp/user
-		}
-	}
+	@@HOMELAB_AUTH_GLOBAL@@
 }
+
+@@HOMELAB_AUTH_SNIPPETS@@
 
 :{$PORT} {
 	@@HOMELAB_FORWARDED_HEADERS@@
@@ -85,7 +49,7 @@
 
 	route /dsh-deployment.js {
 		respond @untrusted_host "Forbidden" 403
-		authorize with dsh_policy
+		@@HOMELAB_AUTHORIZE@@
 		header {
 			Content-Type "application/javascript; charset=utf-8"
 			Cache-Control "no-store"
@@ -93,45 +57,23 @@
 		respond "globalThis.__DSH_AUTHENTICATED_SETTINGS__ = true;" 200
 	}
 
-	route /auth* {
+	@@HOMELAB_AUTH_ROUTES@@
+
+	route /healthz {
 		respond @untrusted_host "Forbidden" 403
-		respond @unexpected_origin "Forbidden" 403
-		rate_limit {
-			zone dsh_auth_usernames {
-				match {
-					method POST
-					path /auth/login
-				}
-				key {http.vars.client_ip}
-				window 1m
-				events 10
-				ipv6_prefix 64
-			}
-			zone dsh_auth_passwords {
-				match {
-					method POST
-					path /auth/sandbox/*
-				}
-				key {http.vars.client_ip}
-				window 10m
-				events 10
-				ipv6_prefix 64
-			}
-		}
-		header Cache-Control "no-store"
-		authenticate with dsh_portal
+		respond "OK" 200
 	}
 
 	route @native_settings_api {
 		respond @untrusted_host "Forbidden" 403
-		authorize with dsh_policy
+		@@HOMELAB_AUTHORIZE@@
 		respond "Forbidden" 403
 	}
 
 	route @settings_api {
 		respond @untrusted_host "Forbidden" 403
 		respond @unexpected_origin "Forbidden" 403
-		authorize with dsh_policy
+		@@HOMELAB_AUTHORIZE@@
 		reverse_proxy 127.0.0.1:{$DSH_INTERNAL_PORT} {
 			header_up Host {$DSH_UPSTREAM_HOST}
 			header_up -Origin
@@ -150,7 +92,8 @@
 
 	route {
 		respond @untrusted_host "Forbidden" 403
-		authorize with dsh_policy
+		respond @unexpected_origin "Forbidden" 403
+		@@HOMELAB_AUTHORIZE@@
 		rewrite @dsh_bootstrap /?token={$DSH_LAUNCH_TOKEN}
 		reverse_proxy 127.0.0.1:{$DSH_INTERNAL_PORT} {
 			# A cookie from an older DSH origin or signing key must not block

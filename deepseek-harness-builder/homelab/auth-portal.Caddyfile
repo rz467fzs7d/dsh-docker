@@ -1,0 +1,39 @@
+	security {
+		local identity store dsh_local {
+			realm local
+			path {$AUTH_DB_PATH}
+			user {$AUTH_USERNAME} {
+				name "DeepSeek Harness User"
+				email dsh-user@local.invalid
+				password "{$AUTH_PASSWORD_HASH}" overwrite
+				roles authp/user
+			}
+		}
+
+		authentication portal dsh_portal {
+			crypto default token lifetime {$AUTH_TOKEN_LIFETIME}
+			crypto key sign-verify "{$AUTH_JWT_SECRET}"
+			enable identity store dsh_local
+			cookie path /
+			cookie lifetime {$AUTH_TOKEN_LIFETIME}
+			cookie samesite strict
+			cookie insecure {$AUTH_COOKIE_INSECURE}
+			set cookie name prefix DSH
+			@@HOMELAB_REDIRECTS@@
+			ui {
+				meta title "DeepSeek Harness Login"
+				meta author "DeepSeek Harness"
+				meta description "Sign in to DeepSeek Harness"
+				links {
+					"DeepSeek Harness" "{$PUBLIC_URL}" icon "las la-terminal"
+				}
+			}
+		}
+
+		authorization policy dsh_policy {
+			set auth url /auth/
+			set access_token cookie name DSH_ACCESS_TOKEN
+			crypto key verify "{$AUTH_JWT_SECRET}"
+			allow roles authp/user
+		}
+	}

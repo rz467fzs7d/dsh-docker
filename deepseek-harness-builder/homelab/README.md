@@ -28,6 +28,11 @@ command-line value or source file. The credential is not included in the image.
 - Set the native `AUTH_USERNAME` and `AUTH_PASSWORD` through a deployment-only
   `.env` using Compose `env_file`. No duplicate alias variables are needed.
   Keep the actual `.env` outside this public fork; no deployment credential belongs here.
+- Default `AUTH_MODE=basic` uses Caddy's native browser username/password challenge.
+  The adapter hashes the password through stdin and removes the plaintext from
+  the child environment. Every application route requires Basic credentials;
+  existing DSH or portal cookies alone cannot bypass this gate. `/healthz` is a
+  public readiness response. Basic Authorization headers are removed upstream.
 - Set `PUBLIC_URL` and comma-separated `HOMELAB_PUBLIC_URLS` to explicit HTTP(S)
   origins. The primary origin must be included. Mixed HTTP/HTTPS origins are rejected.
 - Set `DSH_TRUSTED_HOSTS` to the permitted browser authorities.
@@ -35,7 +40,11 @@ command-line value or source file. The credential is not included in the image.
   are removed. Reviewed HTTPS reverse proxies can supply explicit trusted CIDRs.
 - HTTP requires the upstream `AUTH_COOKIE_INSECURE=true` setting. This adapter
   retains **HttpOnly** on every response cookie. HTTPS still keeps **Secure**.
-- Session lifetime defaults to 30 days. Auth users and the JWT signing key persist in `/data/auth`.
+- Basic credential caching is browser-controlled, without a portal logout button
+  or a 30-day JWT session. For the previous form portal, set
+  `AUTH_MODE=caddy-security`; its 30-day token and `/data/auth` state remain supported.
+  The adapter reuses the unmodified upstream bootstrap lifecycle internally;
+  Basic mode does not enable its portal or accept its JWT as authentication.
 - After password authorization, an invalid legacy native cookie on the root page
   triggers DSH's launch-token exchange again. Unauthenticated requests still
   require the password portal; API 401 responses retain their original status and headers.
@@ -49,7 +58,9 @@ python3 -m unittest discover -s deepseek-harness-builder/homelab -p 'test_*.py'
 python3 deepseek-harness-builder/homelab/smoke.py --image homelab/dsh:latest
 ```
 
-The integration probe uses disposable local data and tests real password login,
-both origins, invalid legacy cookie recovery, cookie flags, hostile Host/Origin rejection and login persistence
-after restart. Deployment-specific configuration is maintained in the private
-Homelab repository, not in this public fork.
+The integration probe uses disposable local data and tests the browser challenge,
+wrong-password rejection, both origins, API access, cookie-only bypass rejection,
+invalid native cookie recovery, hostile Host/Origin rejection and restart behavior.
+Run with `--auth-mode caddy-security` to check the retained portal mode separately.
+Deployment-specific configuration is maintained in the private Homelab repository,
+not in this public fork.
