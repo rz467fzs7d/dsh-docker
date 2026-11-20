@@ -9,7 +9,7 @@ LABEL org.opencontainers.image.source="https://github.com/rz467fzs7d/dsh-docker"
 COPY --chmod=0755 entrypoint.sh /opt/homelab/entrypoint.sh
 COPY configure.py Caddyfile.template /opt/homelab/
 COPY requirements.txt /opt/homelab/requirements.txt
-COPY profile.sh /etc/profile.d/99-homelab-tools.sh
+COPY profile.sh /etc/profile.d/zz-homelab-tools.sh
 RUN python3 -m venv /opt/homelab-venv \
     && /opt/homelab-venv/bin/pip install --no-cache-dir --disable-pip-version-check -r /opt/homelab/requirements.txt
 ENV AUTH_TOKEN_LIFETIME=2592000 CADDY_TRUSTED_PROXIES=none \

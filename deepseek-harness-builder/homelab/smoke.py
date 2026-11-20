@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import re
 import secrets
+import shlex
 import subprocess
 import tempfile
 import time
@@ -100,7 +101,7 @@ def main():
             imports = ('import sys,paramiko,yaml,requests,grpc,google.protobuf,PIL,mutagen,'
                        'websocket,msgpack; assert sys.prefix == "/opt/homelab-venv"')
             for argv in [('python3', '-c', imports),
-                         ('bash', '-lc', 'python3 -c ' + __import__('shlex').quote(imports))]:
+                         ('bash', '-lc', 'python3 -c ' + shlex.quote(imports))]:
                 docker('exec', '--user', 'node', name, *argv)
             print('PASS isolated Skill Python in direct and login shells', flush=True)
             assert request('http://evil.example:3080')[0] == 403
