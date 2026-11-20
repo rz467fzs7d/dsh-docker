@@ -1,0 +1,167 @@
+# Homelab adapter of the upstream Caddy configuration; no DSH source changes.
+{
+	admin off
+	auto_https off
+	grace_period 10s
+
+	servers {
+		trusted_proxies static {$CADDY_TRUSTED_PROXIES}
+		trusted_proxies_strict
+		client_ip_headers X-Forwarded-For
+	}
+
+	security {
+		local identity store dsh_local {
+			realm local
+			path {$AUTH_DB_PATH}
+			user {$AUTH_USERNAME} {
+				name "DeepSeek Harness User"
+				email dsh-user@local.invalid
+				password "{$AUTH_PASSWORD_HASH}" overwrite
+				roles authp/user
+			}
+		}
+
+		authentication portal dsh_portal {
+			crypto default token lifetime {$AUTH_TOKEN_LIFETIME}
+			crypto key sign-verify "{$AUTH_JWT_SECRET}"
+			enable identity store dsh_local
+			cookie path /
+			cookie lifetime {$AUTH_TOKEN_LIFETIME}
+			cookie samesite strict
+			cookie insecure {$AUTH_COOKIE_INSECURE}
+			set cookie name prefix DSH
+			@@HOMELAB_REDIRECTS@@
+			ui {
+				meta title "DeepSeek Harness Login"
+				meta author "DeepSeek Harness"
+				meta description "Sign in to DeepSeek Harness"
+				links {
+					"DeepSeek Harness" "{$PUBLIC_URL}" icon "las la-terminal"
+				}
+			}
+		}
+
+		authorization policy dsh_policy {
+			set auth url /auth/
+			set access_token cookie name DSH_ACCESS_TOKEN
+			crypto key verify "{$AUTH_JWT_SECRET}"
+			allow roles authp/user
+		}
+	}
+}
+
+:{$PORT} {
+	@@HOMELAB_FORWARDED_HEADERS@@
+	header {
+		Set-Cookie "^(.+)$" "$1; HttpOnly"
+		defer
+		-Server
+		Content-Security-Policy "base-uri 'self'; frame-ancestors 'none'; object-src 'none'"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "same-origin"
+		Permissions-Policy "camera=(), geolocation=(), microphone=()"
+	}
+
+	@forwarded_https header X-Forwarded-Proto https
+	header @forwarded_https Strict-Transport-Security "max-age=31536000"
+
+	# Preserve the browser-origin boundary before forwarding authenticated
+	# settings requests to the DSH service.
+	@unexpected_origin `{http.request.header.Origin} != "" && !({http.request.header.Origin} in @@HOMELAB_ORIGINS@@)`
+	@untrusted_host `!({http.request.hostport} in @@HOMELAB_AUTHORITIES@@)`
+	@dsh_bootstrap {
+		path /
+		not header Cookie *dsh-auth-*
+	}
+	@native_settings_api path /api/settings.openDocument /api/settings/openSettingsDocument
+	@settings_api path /api/settings.describe /api/settings.update /api/settings.replace /api/settings.mutate /api/credentials.describe /api/credentials.set /api/credentials.unset /api/llm.discoverModels /api/settings/describe /api/settings/update /api/settings/replace /api/settings/mutate /api/credentials/describe /api/credentials/set /api/credentials/unset /api/llm/discoverModels
+
+	route /healthz {
+		respond "ok" 200
+	}
+
+	route /dsh-deployment.js {
+		respond @untrusted_host "Forbidden" 403
+		authorize with dsh_policy
+		header {
+			Content-Type "application/javascript; charset=utf-8"
+			Cache-Control "no-store"
+		}
+		respond "globalThis.__DSH_AUTHENTICATED_SETTINGS__ = true;" 200
+	}
+
+	route /auth* {
+		respond @untrusted_host "Forbidden" 403
+		respond @unexpected_origin "Forbidden" 403
+		rate_limit {
+			zone dsh_auth_usernames {
+				match {
+					method POST
+					path /auth/login
+				}
+				key {http.vars.client_ip}
+				window 1m
+				events 10
+				ipv6_prefix 64
+			}
+			zone dsh_auth_passwords {
+				match {
+					method POST
+					path /auth/sandbox/*
+				}
+				key {http.vars.client_ip}
+				window 10m
+				events 10
+				ipv6_prefix 64
+			}
+		}
+		header Cache-Control "no-store"
+		authenticate with dsh_portal
+	}
+
+	route @native_settings_api {
+		respond @untrusted_host "Forbidden" 403
+		authorize with dsh_policy
+		respond "Forbidden" 403
+	}
+
+	route @settings_api {
+		respond @untrusted_host "Forbidden" 403
+		respond @unexpected_origin "Forbidden" 403
+		authorize with dsh_policy
+		reverse_proxy 127.0.0.1:{$DSH_INTERNAL_PORT} {
+			header_up Host {$DSH_UPSTREAM_HOST}
+			header_up -Origin
+			header_up -Authorization
+			header_up -Remote-User
+			header_up -X-Auth-User
+			header_up -X-Authenticated-User
+			header_up -X-Email
+			header_up -X-Forwarded-User
+			header_up -X-Roles
+			header_up -X-Remote-User
+			header_up -X-User
+			header_up -X-Webauth-User
+		}
+	}
+
+	route {
+		respond @untrusted_host "Forbidden" 403
+		authorize with dsh_policy
+		rewrite @dsh_bootstrap /?token={$DSH_LAUNCH_TOKEN}
+		reverse_proxy 127.0.0.1:{$DSH_INTERNAL_PORT} {
+			header_up -Authorization
+			header_up -Remote-User
+			header_up -X-Auth-User
+			header_up -X-Authenticated-User
+			header_up -X-Email
+			header_up -X-Forwarded-User
+			header_up -X-Roles
+			header_up -X-Remote-User
+			header_up -X-User
+			header_up -X-Webauth-User
+		}
+	}
+}
