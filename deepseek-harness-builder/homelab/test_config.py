@@ -22,7 +22,7 @@ class ConfigurationTests(unittest.TestCase):
 
     def test_http_does_not_remove_httponly(self):
         rendered = config.render(['http://192.168.0.10:3080'], direct=True)
-        self.assertIn('Set-Cookie "^(.+)$" "$1; HttpOnly"', rendered)
+        self.assertIn('Set-Cookie "[;[:space:]]*$" "; HttpOnly"', rendered)
         self.assertIn('defer', rendered)
         self.assertIn('cookie insecure {$AUTH_COOKIE_INSECURE}', rendered)
 

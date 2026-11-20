@@ -54,7 +54,7 @@
 :{$PORT} {
 	@@HOMELAB_FORWARDED_HEADERS@@
 	header {
-		Set-Cookie "^(.+)$" "$1; HttpOnly"
+		Set-Cookie "[;[:space:]]*$" "; HttpOnly"
 		defer
 		-Server
 		Content-Security-Policy "base-uri 'self'; frame-ancestors 'none'; object-src 'none'"
