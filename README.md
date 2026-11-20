@@ -1,4 +1,14 @@
-# Release Factory
+# DSH Docker
+
+本仓库是 [okxlin/release-factory](https://github.com/okxlin/release-factory) 的 fork。
+Homelab DSH 的构建、密码登录与双入口配置见
+[Homelab adapter](deepseek-harness-builder/homelab/README.md)。每次构建重新解析最新 DSH
+源码发布；NAS 对外端口保持 3080。部署凭证和运行数据不进入本仓库。
+
+以下保留上游 Release Factory 文档，便于同步和追溯。上游镜像与工作流不代表本 fork
+已经发布同名构建物；本 fork 的当前入口是上述本地构建脚本。
+
+## Upstream Release Factory
 
 **简体中文** | [English](README_EN.md)
 
