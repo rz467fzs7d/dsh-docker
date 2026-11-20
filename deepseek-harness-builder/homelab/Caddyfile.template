@@ -71,6 +71,7 @@
 	# settings requests to the DSH service.
 	@unexpected_origin `{http.request.header.Origin} != "" && !({http.request.header.Origin} in @@HOMELAB_ORIGINS@@)`
 	@untrusted_host `!({http.request.hostport} in @@HOMELAB_AUTHORITIES@@)`
+	@dsh_root path /
 	@dsh_bootstrap {
 		path /
 		not header Cookie *dsh-auth-*
@@ -152,6 +153,30 @@
 		authorize with dsh_policy
 		rewrite @dsh_bootstrap /?token={$DSH_LAUNCH_TOKEN}
 		reverse_proxy 127.0.0.1:{$DSH_INTERNAL_PORT} {
+			# A cookie from an older DSH origin or signing key must not block
+			# the native launch-token exchange after password authorization.
+			@native_auth_required status 401
+			handle_response @native_auth_required {
+				handle @dsh_root {
+					rewrite * /?token={$DSH_LAUNCH_TOKEN}
+					reverse_proxy 127.0.0.1:{$DSH_INTERNAL_PORT} {
+						header_up -Authorization
+						header_up -Remote-User
+						header_up -X-Auth-User
+						header_up -X-Authenticated-User
+						header_up -X-Email
+						header_up -X-Forwarded-User
+						header_up -X-Roles
+						header_up -X-Remote-User
+						header_up -X-User
+						header_up -X-Webauth-User
+					}
+				}
+				handle {
+					copy_response_headers
+					copy_response
+				}
+			}
 			header_up -Authorization
 			header_up -Remote-User
 			header_up -X-Auth-User

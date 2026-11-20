@@ -18,6 +18,7 @@ from urllib.parse import quote, urlencode, urljoin, urlsplit
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--image', default='homelab/dsh:latest')
+    parser.add_argument('--template', type=Path, help='Test an updated adapter template against the built image')
     args = parser.parse_args()
     name = 'dsh-homelab-smoke-' + secrets.token_hex(5)
     username, password = 'smoke-user', secrets.token_urlsafe(24)
@@ -36,10 +37,11 @@ def main():
             'CADDY_TRUSTED_PROXIES=none', 'DSH_TELEMETRY_DISABLED=1']) + '\n')
         env.chmod(0o600)
         try:
+            mounts = ['-v', str(args.template.resolve()) + ':/opt/homelab/Caddyfile.template:ro'] if args.template else []
             docker('run', '-d', '--name', name, '--network', 'bridge',
                    '--health-interval', '10m', '--memory', '2g', '--cpus', '2',
                    '-p', '127.0.0.1::8080', '-v', str(root / 'data') + ':/data',
-                   '--env-file', str(env), args.image)
+                   '--env-file', str(env), *mounts, args.image)
             info = json.loads(docker('inspect', name).stdout)[0]
             port = int(info['NetworkSettings']['Ports']['8080/tcp'][0]['HostPort'])
             flags = {}
@@ -119,13 +121,20 @@ def main():
                 bad_origin = request(origin, '/api/settings/describe', 'POST', jar,
                                      headers={'Origin': 'http://evil.example'})
                 assert bad_origin[0] == 403
+                for key in list(jar):
+                    if key.startswith('dsh-auth-'):
+                        del jar[key]
+                jar['dsh-auth-stale'] = 'invalid'
+                recovered = follow(origin, request(origin, jar=jar), jar)
+                assert recovered[0] == 200, ('Stale native cookie recovery', recovered[0])
+                assert any(k.startswith('dsh-auth-') and k != 'dsh-auth-stale' for k in jar)
                 good_jars.append(jar)
-                print('PASS password login, native bootstrap and Origin boundary: ' + origin, flush=True)
+                print('PASS password login, stale-cookie recovery and Origin boundary: ' + origin, flush=True)
             assert flags['DSH_ACCESS_TOKEN']['httponly'], flags
             assert not flags['DSH_ACCESS_TOKEN']['secure'], flags
             assert flags['DSH_ACCESS_TOKEN']['maxage'] == '2592000', flags
             assert all(v['httponly'] for k, v in flags.items() if k.startswith('dsh-auth-'))
-            bad = {}
+            bad = {'dsh-auth-stale': 'invalid'}
             action, sandbox = password_form(origins[0], bad)
             request(origins[0], action, 'POST', bad,
                     {'secret': 'deliberately-wrong-password', 'sandbox_id': sandbox, 'submit': 'Sign In'})

@@ -34,6 +34,9 @@ command-line value or source file. The credential is not included in the image.
 - HTTP requires the upstream `AUTH_COOKIE_INSECURE=true` setting. This adapter
   retains **HttpOnly** on every response cookie. HTTPS still keeps **Secure**.
 - Session lifetime defaults to 30 days. Auth users and the JWT signing key persist in `/data/auth`.
+- After password authorization, an invalid legacy native cookie on the root page
+  triggers DSH's launch-token exchange again. Unauthenticated requests still
+  require the password portal; API 401 responses retain their original status and headers.
 - The inherited image healthcheck must be slowed with only `healthcheck.interval: 10m`
   on NAS. Do not add a Compose `healthcheck.test`, host networking or a Docker socket.
 
@@ -45,6 +48,6 @@ python3 deepseek-harness-builder/homelab/smoke.py --image homelab/dsh:latest
 ```
 
 The integration probe uses disposable local data and tests real password login,
-both origins, cookie flags, hostile Host/Origin rejection and login persistence
+both origins, invalid legacy cookie recovery, cookie flags, hostile Host/Origin rejection and login persistence
 after restart. Deployment-specific configuration is maintained in the private
 Homelab repository, not in this public fork.
