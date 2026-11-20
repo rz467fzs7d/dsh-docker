@@ -15,6 +15,10 @@ tag, source commit and archive checksum, and runs Docker with `--pull`. It never
 silently falls back to the committed DSH baseline. The actual version, source
 checksum, fork revision and final image ID are saved in `dsh-build-receipt.json`.
 The workstation includes Python and Go for portable Homelab skills.
+The upstream resolver accepts `GITHUB_TOKEN` from the build process environment
+when GitHub's anonymous API limit is exhausted. Supply an existing credential
+through your credential manager; do not embed it in a Docker build argument,
+command-line value or source file. The credential is not included in the image.
 
 ## Deployment contract
 
