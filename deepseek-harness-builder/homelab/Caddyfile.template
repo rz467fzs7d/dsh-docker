@@ -44,6 +44,7 @@
 	@settings_api path /api/settings.describe /api/settings.update /api/settings.replace /api/settings.mutate /api/credentials.describe /api/credentials.set /api/credentials.unset /api/llm.discoverModels /api/settings/describe /api/settings/update /api/settings/replace /api/settings/mutate /api/credentials/describe /api/credentials/set /api/credentials/unset /api/llm/discoverModels
 
 	route /healthz {
+		respond @untrusted_host "Forbidden" 403
 		respond "ok" 200
 	}
 
@@ -58,11 +59,6 @@
 	}
 
 	@@HOMELAB_AUTH_ROUTES@@
-
-	route /healthz {
-		respond @untrusted_host "Forbidden" 403
-		respond "OK" 200
-	}
 
 	route @native_settings_api {
 		respond @untrusted_host "Forbidden" 403

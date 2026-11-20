@@ -23,6 +23,7 @@ class ConfigurationTests(unittest.TestCase):
         self.assertIn('header_up -Authorization', rendered)
         self.assertIn('rewrite @dsh_bootstrap /?token={$DSH_LAUNCH_TOKEN}', rendered)
         self.assertIn('route /healthz', rendered)
+        self.assertEqual(rendered.count('route /healthz'), 1)
 
     def test_plaintext_password_uses_stdin_not_process_arguments(self):
         hashed = '$2b$12$' + 'a' * 53
