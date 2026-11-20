@@ -25,7 +25,9 @@ command-line value or source file. The credential is not included in the image.
 - Publish the container's Caddy port 8080 as host port **3080** using bridge networking.
 - Mount `/data`, `/data/dsh`, `/workspace` and `/home/node` persistently. Nested
   `/data/dsh` mounts let an existing DSH_HOME remain in place during migration.
-- Use the upstream `AUTH_PASSWORD_FILE`; no password or credential belongs in this public fork.
+- Set the native `AUTH_USERNAME` and `AUTH_PASSWORD` through a deployment-only
+  `.env` using Compose `env_file`. No duplicate alias variables are needed.
+  Keep the actual `.env` outside this public fork; no deployment credential belongs here.
 - Set `PUBLIC_URL` and comma-separated `HOMELAB_PUBLIC_URLS` to explicit HTTP(S)
   origins. The primary origin must be included. Mixed HTTP/HTTPS origins are rejected.
 - Set `DSH_TRUSTED_HOSTS` to the permitted browser authorities.
