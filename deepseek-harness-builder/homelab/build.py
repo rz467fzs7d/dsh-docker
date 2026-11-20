@@ -23,7 +23,9 @@ def main():
                    text=True, capture_output=True).stdout.strip()
     with tempfile.TemporaryDirectory(prefix='dsh-homelab-build-') as td:
         context = Path(td) / 'image'
+        adapter = Path(td) / 'homelab'
         shutil.copytree(BUILDER / 'image', context)
+        shutil.copytree(HERE, adapter, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
         source_file = context / 'dsh-source.json'
         run(['bash', BUILDER / 'scripts/resolve-dsh-source.sh', '--metadata-output', source_file,
              '--github-output', '/dev/null'])
@@ -40,7 +42,7 @@ def main():
         run([*command, context])
         run(['docker', 'build', '--platform', args.platform, '--build-arg',
              'BASE_IMAGE=homelab/dsh-upstream:build', '--build-arg', 'SOURCE_REVISION=' + revision,
-             '--build-arg', 'DSH_VERSION=' + source['version'], '-t', args.tag, HERE])
+             '--build-arg', 'DSH_VERSION=' + source['version'], '-t', args.tag, adapter])
         image = json.loads(run(['docker', 'image', 'inspect', args.tag], text=True,
                                capture_output=True).stdout)[0]
         args.receipt.parent.mkdir(parents=True, exist_ok=True)

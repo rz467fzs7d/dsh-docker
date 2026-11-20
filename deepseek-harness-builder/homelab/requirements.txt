@@ -1,0 +1,10 @@
+# Shared Python capabilities used by portable Homelab skills.
+paramiko>=3.5,<5
+PyYAML>=6,<7
+requests>=2.32,<3
+grpcio>=1.70,<2
+protobuf>=5,<8
+pillow>=11,<14
+mutagen>=1.47,<2
+websocket-client>=1.8,<2
+msgpack>=1,<2
