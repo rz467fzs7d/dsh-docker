@@ -132,6 +132,9 @@ def main():
             assert 'DSH_ACCESS_TOKEN' not in bad
             assert request(origins[0], jar=bad)[0] == 302
             docker('restart', name)
+            # Docker can allocate a new host port when the binding was random.
+            restarted = json.loads(docker('inspect', name).stdout)[0]
+            port = int(restarted['NetworkSettings']['Ports']['8080/tcp'][0]['HostPort'])
             ready()
             for origin, jar in zip(origins, good_jars):
                 assert request(origin, jar=jar)[0] == 200
