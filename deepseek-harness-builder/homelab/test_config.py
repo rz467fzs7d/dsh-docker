@@ -11,6 +11,16 @@ spec.loader.exec_module(config)
 
 
 class ConfigurationTests(unittest.TestCase):
+    def test_native_none_mode_keeps_origin_and_authority_boundaries(self):
+        rendered = config.render(['http://lan:3080', 'http://zt:3080'], True, 'none')
+        self.assertNotIn('basic_auth', rendered)
+        self.assertNotIn('authorize with', rendered)
+        self.assertNotIn('header_up Host {$DSH_UPSTREAM_HOST}', rendered)
+        self.assertIn('respond @untrusted_host "Forbidden" 403', rendered)
+        self.assertIn('respond @unexpected_origin "Forbidden" 403', rendered)
+        self.assertIn('rewrite @dsh_bootstrap /?token={$DSH_LAUNCH_TOKEN}', rendered)
+        self.assertNotIn('@@', rendered)
+
     def test_basic_auth_replaces_portal_and_protects_every_application_route(self):
         hashed = '$2b$12$' + 'a' * 53
         rendered = config.render(['http://nas:3080'], direct=True, auth_mode='basic', hashed=hashed)

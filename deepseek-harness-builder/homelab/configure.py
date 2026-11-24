@@ -95,6 +95,8 @@ def render(origins, direct, auth_mode='caddy-security', hashed=None):
         routes = (HERE / 'auth-routes.Caddyfile').read_text(encoding='utf-8')
         snippets, authorize = '', 'authorize with dsh_policy'
         basic_matchers = ''
+    elif auth_mode == 'none':
+        global_auth = routes = snippets = authorize = basic_matchers = ''
     else:
         raise ValueError('Unsupported Homelab authentication mode')
     source = (source.replace('@@HOMELAB_AUTH_GLOBAL@@', global_auth)
@@ -110,14 +112,15 @@ def render(origins, direct, auth_mode='caddy-security', hashed=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--auth-mode', choices=['basic', 'caddy-security'], default='caddy-security')
+    parser.add_argument('--auth-mode', choices=['basic', 'caddy-security', 'none'], default='caddy-security')
     args = parser.parse_args()
     origins = parse_origins(os.environ.get('HOMELAB_PUBLIC_URLS') or os.environ['PUBLIC_URL'])
     primary = parse_origins(os.environ['PUBLIC_URL'])[0]
     if primary not in origins:
         raise ValueError('PUBLIC_URL must be one of HOMELAB_PUBLIC_URLS')
     hashed = password_hash(os.environ) if args.auth_mode == 'basic' else None
-    Path('/etc/caddy/Caddyfile').write_text(
+    target = '/etc/caddy/Caddyfile.passthrough' if args.auth_mode == 'none' else '/etc/caddy/Caddyfile'
+    Path(target).write_text(
         render(origins, os.environ.get('CADDY_TRUSTED_PROXIES', 'none') == 'none', args.auth_mode, hashed), encoding='utf-8')
     if hashed:
         # The unmodified upstream lifecycle validates this native hash input.

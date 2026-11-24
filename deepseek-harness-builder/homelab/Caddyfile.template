@@ -72,7 +72,6 @@
 		respond @unexpected_origin "Forbidden" 403
 		@@HOMELAB_AUTHORIZE@@
 		reverse_proxy 127.0.0.1:{$DSH_INTERNAL_PORT} {
-			header_up Host {$DSH_UPSTREAM_HOST}
 			header_up -Origin
 			header_up -Authorization
 			header_up -Remote-User

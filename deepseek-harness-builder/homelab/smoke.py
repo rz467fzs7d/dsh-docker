@@ -20,7 +20,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--image', default='homelab/dsh:latest')
     parser.add_argument('--template', type=Path, help='Test an updated adapter template against the built image')
-    parser.add_argument('--auth-mode', choices=['basic', 'caddy-security'], default='basic')
+    parser.add_argument('--auth-mode', choices=['basic', 'caddy-security', 'none'], default='basic')
     args = parser.parse_args()
     name = 'dsh-homelab-smoke-' + secrets.token_hex(5)
     username, password = 'smoke-user', secrets.token_urlsafe(24)
@@ -77,6 +77,8 @@ def main():
             def ready():
                 deadline = time.monotonic() + 240
                 while time.monotonic() < deadline:
+                    running = json.loads(docker('inspect', name).stdout)[0]['State']['Running']
+                    assert running, 'DSH container exited during readiness'
                     try:
                         if request(origins[0], '/healthz')[0] == 200:
                             return
@@ -113,6 +115,41 @@ def main():
                 docker('exec', '--user', 'node', name, *argv)
             print('PASS isolated Skill Python in direct and login shells', flush=True)
             assert request('http://evil.example:3080')[0] == 403
+            if args.auth_mode == 'none':
+                jars = []
+                for origin in origins:
+                    jar = {}
+                    page = follow(origin, request(origin, jar=jar), jar)
+                    assert page[0] == 200 and 'authentication required' not in page[2]
+                    assert 'www-authenticate' not in page[1]
+                    assert any(k.startswith('dsh-auth-') for k in jar)
+                    for path in ['/manifest.webmanifest', '/favicon.svg', '/dsh-deployment.js']:
+                        asset = request(origin, path, jar=jar)
+                        assert asset[0] == 200 and 'www-authenticate' not in asset[1], (path, asset[0])
+                    for method in ['session/modelCatalog', 'settings/describe']:
+                        body = json.dumps({'type': 'client-request', 'rpcId': 'none-smoke',
+                                           'method': method, 'payload': {'args': {}}}).encode()
+                        api = request(origin, '/api/' + method, 'POST', jar, body, {'Origin': origin})
+                        assert api[0] == 200 and json.loads(api[2])['result']['ok'], (origin, method, api[0])
+                        assert request(origin, '/api/' + method, 'POST', jar, body,
+                                       {'Origin': 'http://evil.example'})[0] == 403
+                    ws_headers = {'Origin': origin, 'Connection': 'Upgrade', 'Upgrade': 'websocket',
+                                  'Sec-WebSocket-Version': '13',
+                                  'Sec-WebSocket-Key': base64.b64encode(secrets.token_bytes(16)).decode()}
+                    assert request(origin, '/api/remote.mux', jar=jar, headers=ws_headers)[0] == 101
+                    assert request(origin, '/api/remote.mux', headers=ws_headers)[0] == 401
+                    stale = {'dsh-auth-stale': 'invalid'}
+                    assert follow(origin, request(origin, jar=stale), stale)[0] == 200
+                    jars.append(jar)
+                    print('PASS no-login pages, assets, plugins, API, settings, WebSocket and cookie recovery: ' + origin, flush=True)
+                docker('restart', name)
+                restarted = json.loads(docker('inspect', name).stdout)[0]
+                port = int(restarted['NetworkSettings']['Ports']['8080/tcp'][0]['HostPort'])
+                ready()
+                for origin, jar in zip(origins, jars):
+                    assert request(origin, jar=jar)[0] == 200
+                print('PASS no-login persistence after restart', flush=True)
+                return
             if args.auth_mode == 'basic':
                 good_jars = []
                 token = base64.b64encode((username + ':' + password).encode()).decode()
@@ -131,6 +168,15 @@ def main():
                     body = json.dumps({'type': 'client-request', 'rpcId': 'basic-smoke',
                                        'method': 'session/modelCatalog', 'payload': {'args': {}}}).encode()
                     assert json.loads(request(origin, '/api/session/modelCatalog', 'POST', jar, body)[2])['result']['ok']
+                    # Native auth cookies are scoped to the browser authority. The
+                    # settings proxy must preserve it for every advertised origin.
+                    for method in ['settings/describe']:
+                        settings_body = json.dumps({'type': 'client-request', 'rpcId': 'settings-smoke',
+                                                   'method': method, 'payload': {'args': {}}}).encode()
+                        settings = request(origin, '/api/' + method, 'POST', jar, settings_body,
+                                           {'Origin': origin})
+                        assert settings[0] == 200, (origin, method, settings[0])
+                        assert json.loads(settings[2])['result']['ok'], (origin, method)
                     assert request(origin, '/api/session/modelCatalog', 'POST', jar, body,
                                    {'Origin': 'http://evil.example'})[0] == 403
                     for k in list(jar):
@@ -141,6 +187,8 @@ def main():
                     basic_credentials = None
                     assert request(origin, jar=jar)[0] == 401, 'Native cookies cannot bypass Basic auth'
                     assert request(origin, '/api/session/modelCatalog', 'POST', jar, body)[0] == 401
+                    assert request(origin, '/api/session/modelCatalog', 'POST', jar, body,
+                                   {'X-Forwarded-For': '192.168.0.25'})[0] == 401
                     ws_headers = {'Origin': origin, 'Connection': 'Upgrade', 'Upgrade': 'websocket',
                                   'Sec-WebSocket-Version': '13',
                                   'Sec-WebSocket-Key': base64.b64encode(secrets.token_bytes(16)).decode()}

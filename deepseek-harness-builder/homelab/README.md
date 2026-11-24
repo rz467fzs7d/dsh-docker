@@ -38,6 +38,11 @@ command-line value or source file. The credential is not included in the image.
   omits cached HTTP credentials. Missing and forged cookies are rejected by DSH
   before upgrade; Host and Origin checks still run in Caddy. Ordinary HTTP requests
   to the same path still require Basic authentication. Portal mode is unchanged.
+- Explicit `AUTH_MODE=none` disables the outer login prompt for all permitted
+  authorities. The adapter uses the upstream native passthrough lifecycle,
+  automatically bootstraps DSH signed cookies, and retains Host/Origin restrictions.
+  This is not source-subnet authentication. The settings proxy preserves the
+  browser Host so cookies from secondary origins remain valid.
 - Set `PUBLIC_URL` and comma-separated `HOMELAB_PUBLIC_URLS` to explicit HTTP(S)
   origins. The primary origin must be included. Mixed HTTP/HTTPS origins are rejected.
 - Set `DSH_TRUSTED_HOSTS` to the permitted browser authorities.
@@ -66,6 +71,6 @@ python3 deepseek-harness-builder/homelab/smoke.py --image homelab/dsh:latest
 The integration probe uses disposable local data and tests the browser challenge,
 wrong-password rejection, both origins, API access, cookie-only bypass rejection,
 invalid native cookie recovery, hostile Host/Origin rejection and restart behavior.
-Run with `--auth-mode caddy-security` to check the retained portal mode separately.
+Run with `--auth-mode none` for login-free origins, or `--auth-mode caddy-security` to check the retained portal mode separately.
 Deployment-specific configuration is maintained in the private Homelab repository,
 not in this public fork.
