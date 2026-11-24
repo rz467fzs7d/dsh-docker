@@ -1,7 +1,7 @@
 # DSH Docker for Homelab
 
-This fork keeps the upstream release builder and adds a native configuration adapter.
-DSH itself is built by the upstream Dockerfile; this layer changes no DSH source.
+This fork installs the official npm runtime and adds a native configuration adapter.
+The upstream source builder remains an optional tool; the normal build changes no DSH source.
 
 ## Build on the Docker host
 
