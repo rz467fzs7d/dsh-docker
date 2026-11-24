@@ -20,7 +20,7 @@ def dockerfile(upstream):
         raise ValueError('Upstream source-build command changed; review it before updating')
     commands = commands.replace(original, 'RUN test "$(pnpm --version)" = "${HOMELAB_PNPM_VERSION}" \\\n')
     return '''# syntax=docker/dockerfile:1
-ARG BASE_IMAGE
+ARG BASE_IMAGE=homelab/dsh:latest
 FROM ${BASE_IMAGE} AS dsh-deps
 ''' + declarations + '''
 ARG HOMELAB_DSH_VERSION
@@ -60,6 +60,10 @@ def main():
     base = json.loads(run(['docker', 'image', 'inspect', args.base_image], text=True, capture_output=True).stdout)[0]
     # Use an immutable local base throughout the build and keep the running tag intact.
     base_id = base['Id']
+    # BuildKit treats a bare config ID in FROM as a registry repository name.
+    # A dedicated tag preserves the selected local image without moving latest.
+    base_ref = 'homelab/dsh-build-base:' + base_id.split(':')[-1]
+    run(['docker', 'tag', base_id, base_ref])
     with tempfile.TemporaryDirectory(prefix='dsh-target-build-') as td:
         context = Path(td) / 'image'
         shutil.copytree(BUILDER / 'image', context)
@@ -80,7 +84,7 @@ def main():
                                  context, '--format', 'json'], text=True, capture_output=True).stdout)
         (context / 'Dockerfile').write_text(dockerfile((context / 'Dockerfile').read_text()))
         command = ['docker', 'build', '--platform', args.platform, '--target', 'workstation',
-                   '-t', args.tag, '--build-arg', 'BASE_IMAGE=' + base_id,
+                   '-t', args.tag, '--build-arg', 'BASE_IMAGE=' + base_ref,
                    '--build-arg', 'SOURCE_REVISION=' + revision,
                    '--build-arg', 'HOMELAB_DSH_VERSION=' + source['version'],
                    '--build-arg', 'HOMELAB_NODE_VERSION=' + inputs['NODE_VERSION'],
