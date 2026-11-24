@@ -30,9 +30,14 @@ command-line value or source file. The credential is not included in the image.
   Keep the actual `.env` outside this public fork; no deployment credential belongs here.
 - Default `AUTH_MODE=basic` uses Caddy's native browser username/password challenge.
   The adapter hashes the password through stdin and removes the plaintext from
-  the child environment. Every application route requires Basic credentials;
-  existing DSH or portal cookies alone cannot bypass this gate. `/healthz` is a
+  the child environment. Ordinary HTTP routes require Basic credentials;
+  existing DSH or portal cookies alone cannot bypass that gate. `/healthz` is a
   public readiness response. Basic Authorization headers are removed upstream.
+- The exact `GET /api/remote.mux` WebSocket upgrade uses DSH's native signed-cookie
+  authentication, preventing repeated browser Basic prompts when the handshake
+  omits cached HTTP credentials. Missing and forged cookies are rejected by DSH
+  before upgrade; Host and Origin checks still run in Caddy. Ordinary HTTP requests
+  to the same path still require Basic authentication. Portal mode is unchanged.
 - Set `PUBLIC_URL` and comma-separated `HOMELAB_PUBLIC_URLS` to explicit HTTP(S)
   origins. The primary origin must be included. Mixed HTTP/HTTPS origins are rejected.
 - Set `DSH_TRUSTED_HOSTS` to the permitted browser authorities.

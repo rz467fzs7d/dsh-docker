@@ -14,7 +14,7 @@ class ConfigurationTests(unittest.TestCase):
     def test_basic_auth_replaces_portal_and_protects_every_application_route(self):
         hashed = '$2b$12$' + 'a' * 53
         rendered = config.render(['http://nas:3080'], direct=True, auth_mode='basic', hashed=hashed)
-        self.assertIn('basic_auth bcrypt DSH', rendered)
+        self.assertIn('basic_auth @dsh_basic_required bcrypt DSH', rendered)
         self.assertIn('{$AUTH_USERNAME} ' + hashed, rendered)
         self.assertNotIn('authentication portal', rendered)
         self.assertNotIn('authorize with', rendered)
@@ -24,6 +24,15 @@ class ConfigurationTests(unittest.TestCase):
         self.assertIn('rewrite @dsh_bootstrap /?token={$DSH_LAUNCH_TOKEN}', rendered)
         self.assertIn('route /healthz', rendered)
         self.assertEqual(rendered.count('route /healthz'), 1)
+
+    def test_only_native_mux_upgrade_uses_native_signed_cookie_auth(self):
+        rendered = config.render(['http://nas:3080'], True, 'basic', '$2b$12$' + 'a' * 53)
+        self.assertIn('method GET\n            path /api/remote.mux\n            header Upgrade websocket', rendered)
+        self.assertNotIn('Cookie *dsh-auth-*\n        }', rendered)
+        self.assertIn('respond @unexpected_origin "Forbidden" 403', rendered)
+        portal = config.render(['http://nas:3080'], True)
+        self.assertNotIn('@dsh_basic_required', portal)
+        self.assertIn('authorize with dsh_policy', portal)
 
     def test_plaintext_password_uses_stdin_not_process_arguments(self):
         hashed = '$2b$12$' + 'a' * 53

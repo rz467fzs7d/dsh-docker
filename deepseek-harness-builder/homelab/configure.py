@@ -78,17 +78,29 @@ def render(origins, direct, auth_mode='caddy-security', hashed=None):
         if not hashed or not re.fullmatch(r'\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}', hashed):
             raise ValueError('Basic authentication requires a bcrypt hash')
         global_auth, routes = '', ''
-        snippets = '(dsh_basic) {\n\tbasic_auth bcrypt DSH {\n\t\t{$AUTH_USERNAME} ' + hashed + '\n\t}\n}'
+        snippets = '(dsh_basic) {\n\tbasic_auth @dsh_basic_required bcrypt DSH {\n\t\t{$AUTH_USERNAME} ' + hashed + '\n\t}\n}'
+        # Browser WebSocket handshakes may omit cached HTTP Basic credentials.
+        # The native mux verifies DSH's signed cookie before upgrading; do not
+        # challenge again here or accept a cookie by its presence alone.
+        basic_matchers = '''@dsh_basic_required {
+        not {
+            method GET
+            path /api/remote.mux
+            header Upgrade websocket
+        }
+    }'''
         authorize = 'import dsh_basic'
     elif auth_mode == 'caddy-security':
         global_auth = (HERE / 'auth-portal.Caddyfile').read_text(encoding='utf-8')
         routes = (HERE / 'auth-routes.Caddyfile').read_text(encoding='utf-8')
         snippets, authorize = '', 'authorize with dsh_policy'
+        basic_matchers = ''
     else:
         raise ValueError('Unsupported Homelab authentication mode')
     source = (source.replace('@@HOMELAB_AUTH_GLOBAL@@', global_auth)
               .replace('@@HOMELAB_AUTH_ROUTES@@', routes)
               .replace('@@HOMELAB_AUTH_SNIPPETS@@', snippets)
+              .replace('@@HOMELAB_BASIC_MATCHERS@@', basic_matchers)
               .replace('@@HOMELAB_AUTHORIZE@@', authorize))
     return (source.replace('@@HOMELAB_REDIRECTS@@', redirects)
             .replace('@@HOMELAB_ORIGINS@@', json.dumps(origins))

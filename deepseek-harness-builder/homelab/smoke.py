@@ -141,9 +141,22 @@ def main():
                     basic_credentials = None
                     assert request(origin, jar=jar)[0] == 401, 'Native cookies cannot bypass Basic auth'
                     assert request(origin, '/api/session/modelCatalog', 'POST', jar, body)[0] == 401
+                    ws_headers = {'Origin': origin, 'Connection': 'Upgrade', 'Upgrade': 'websocket',
+                                  'Sec-WebSocket-Version': '13',
+                                  'Sec-WebSocket-Key': base64.b64encode(secrets.token_bytes(16)).decode()}
+                    mux = request(origin, '/api/remote.mux', jar=jar, headers=ws_headers)
+                    assert mux[0] == 101, ('Native signed-cookie WebSocket', mux[0])
+                    assert 'www-authenticate' not in mux[1]
+                    for invalid_jar in [{}, {'dsh-auth-forged': 'invalid'}]:
+                        rejected = request(origin, '/api/remote.mux', jar=invalid_jar, headers=ws_headers)
+                        assert rejected[0] == 401 and 'www-authenticate' not in rejected[1]
+                    assert request(origin, '/api/remote.mux', jar=jar,
+                                   headers={**ws_headers, 'Origin': 'http://evil.example'})[0] == 403
+                    ordinary = request(origin, '/api/remote.mux', jar=jar)
+                    assert ordinary[0] == 401 and 'www-authenticate' in ordinary[1]
                     assert request(origin, '/healthz')[0] == 200
                     good_jars.append(jar)
-                    print('PASS browser challenge, password rejection, API, stale-cookie recovery and origin boundary: ' + origin, flush=True)
+                    print('PASS browser challenge, API, cookie recovery, native authenticated WebSocket and origin boundary: ' + origin, flush=True)
                 assert all(v['httponly'] for k, v in flags.items() if k.startswith('dsh-auth-'))
                 docker('restart', name)
                 restarted = json.loads(docker('inspect', name).stdout)[0]

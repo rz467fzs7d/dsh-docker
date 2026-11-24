@@ -35,6 +35,7 @@
 	# settings requests to the DSH service.
 	@unexpected_origin `{http.request.header.Origin} != "" && !({http.request.header.Origin} in @@HOMELAB_ORIGINS@@)`
 	@untrusted_host `!({http.request.hostport} in @@HOMELAB_AUTHORITIES@@)`
+	@@HOMELAB_BASIC_MATCHERS@@
 	@dsh_root path /
 	@dsh_bootstrap {
 		path /
