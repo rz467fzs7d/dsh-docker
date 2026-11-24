@@ -26,7 +26,12 @@ def main():
     username, password = 'smoke-user', secrets.token_urlsafe(24)
     origins = ['http://lan.example.test:3080', 'http://zt.example.test:3080']
     def docker(*argv, check=True):
-        return subprocess.run(['docker', *argv], check=check, text=True, capture_output=True)
+        result = subprocess.run(['docker', *argv], check=False, text=True, capture_output=True)
+        if check and result.returncode:
+            safe = re.sub(r'([?&]token=)[A-Za-z0-9_-]+', r'\1[redacted]', result.stderr)
+            print(safe[-2000:], flush=True)
+            result.check_returncode()
+        return result
     with tempfile.TemporaryDirectory(prefix='dsh-homelab-smoke-') as td:
         root = Path(td)
         (root / 'data').mkdir()
@@ -42,7 +47,7 @@ def main():
         try:
             mounts = ['-v', str(args.template.resolve()) + ':/opt/homelab/Caddyfile.template:ro'] if args.template else []
             docker('run', '-d', '--name', name, '--network', 'bridge',
-                   '--health-interval', '10m', '--memory', '2g', '--cpus', '2',
+                   '--health-interval', '10m', '--memory', '2g', '--cpu-shares', '128',
                    '-p', '127.0.0.1::8080', '-v', str(root / 'data') + ':/data',
                    '--env-file', str(env), *mounts, args.image)
             info = json.loads(docker('inspect', name).stdout)[0]
