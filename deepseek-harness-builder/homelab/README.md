@@ -3,43 +3,35 @@
 This fork keeps the upstream release builder and adds a native configuration adapter.
 DSH itself is built by the upstream Dockerfile; this layer changes no DSH source.
 
-## Build
+## Build on the Docker host
 
 ```sh
-python3 deepseek-harness-builder/homelab/build.py \
-  --platform linux/amd64 --tag homelab/dsh:latest
-```
-
-Every invocation resolves the highest non-draft DSH source release, verifies the
-tag, source commit and archive checksum, and runs Docker with `--pull`. It never
-silently falls back to the committed DSH baseline. The actual version, source
-checksum, fork revision and final image ID are saved in `dsh-build-receipt.json`.
-The workstation includes Python and Go for portable Homelab skills.
-The upstream resolver accepts `GITHUB_TOKEN` from the build process environment
-when GitHub's anonymous API limit is exhausted. Supply an existing credential
-through your credential manager; do not embed it in a Docker build argument,
-command-line value or source file. The credential is not included in the image.
-
-## Build directly on an existing Docker host
-
-For a DSH-only update, reuse the installed workstation toolchain and compile the
-freshly resolved official DSH source on the target host:
-
-```sh
-DOCKER_BUILDKIT=1 python3 deepseek-harness-builder/homelab/build_incremental.py \
+DOCKER_BUILDKIT=1 python3 deepseek-harness-builder/homelab/build.py \
   --base-image homelab/dsh:latest --tag homelab/dsh:upgrade \
   --receipt /tmp/dsh-build-receipt.json
 python3 deepseek-harness-builder/homelab/smoke.py --image homelab/dsh:upgrade --auth-mode none
 ```
 
-The target host needs Python 3 and Docker with BuildKit/Buildx. Short-lived bridge
-containers provide Git, Node and release-resolution tools from the existing image;
-they mount only the source and temporary context, never the Docker socket.
-The base config ID is frozen for the build, while DSH's latest non-draft release,
-commit and archive checksum are resolved again. The upstream source-build steps
-are reused, including native addon checks. Node/pnpm mismatches fail explicitly;
-use the full build above when updating the underlying workstation components.
-The candidate tag leaves the running image in place until deployment acceptance.
+The normal build installs the official **published npm package and production
+dependencies**, without compiling the DSH monorepo. Every invocation resolves the
+highest published semantic version, including prereleases such as `alpha`; npm's
+`latest` tag is not assumed to be the highest version. The version is resolved
+once per build and its integrity is verified against npm's lockfile after install.
+The receipt records the package version, integrity, engines, adapter revision and
+base/final image config IDs. There is no committed DSH version pin.
+
+Build on the deployment host to keep the resulting image there. Python 3 and Docker
+with BuildKit/Buildx are required. Short-lived bridge containers supply Git, Node
+and npm from the existing workstation image, mounting only source and temporary
+context. No Docker socket is mounted. The existing Python/Go/Caddy toolchain stays
+in the base image; npm's download cache is kept in BuildKit for subsequent updates.
+Native dependencies may use their own install scripts or build a missing native
+addon; this does not compile DSH's TypeScript/Web application sources.
+
+`build_source.py` retains the upstream full-source build as an **explicit optional
+path** for an unpublished version or source-development verification. It is not
+called automatically when a package lookup or install fails. Ordinary Homelab
+configuration, plugins, models and login adaptation do not require source builds.
 
 ## Deployment contract
 

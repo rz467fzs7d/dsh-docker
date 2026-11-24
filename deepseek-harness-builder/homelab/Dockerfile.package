@@ -1,0 +1,30 @@
+# syntax=docker/dockerfile:1
+ARG BASE_IMAGE=homelab/dsh:latest
+FROM ${BASE_IMAGE} AS dsh-package
+ARG HOMELAB_DSH_VERSION
+ARG HOMELAB_DSH_INTEGRITY
+ENV npm_config_cache=/var/cache/homelab-npm
+WORKDIR /opt/dsh
+RUN --mount=type=cache,id=homelab-dsh-npm,target=/var/cache/homelab-npm \
+    rm -rf /opt/dsh/* /opt/dsh/.[!.]* \
+    && node -e 'require("node:fs").writeFileSync("package.json",JSON.stringify({name:"homelab-dsh-runtime",private:true,type:"module",version:process.env.HOMELAB_DSH_VERSION}))' \
+    && npm install --registry=https://registry.npmjs.org --engine-strict --ignore-scripts=false \
+        --omit=dev --no-audit --no-fund "@deepseek-ai/dsh@${HOMELAB_DSH_VERSION}" \
+    && node -e 'const p=require("./package-lock.json").packages["node_modules/@deepseek-ai/dsh"];if(p.integrity!==process.env.HOMELAB_DSH_INTEGRITY)throw Error("Published package integrity changed")' \
+    && test "$(node -p 'require("./node_modules/@deepseek-ai/dsh/package.json").version')" = "${HOMELAB_DSH_VERSION}" \
+    && test "$(node_modules/.bin/dsh --version)" = "${HOMELAB_DSH_VERSION}"
+
+FROM ${BASE_IMAGE} AS workstation
+ARG HOMELAB_DSH_VERSION
+ARG HOMELAB_DSH_INTEGRITY
+ARG SOURCE_REVISION
+ENV DSH_VERSION=${HOMELAB_DSH_VERSION}
+LABEL org.opencontainers.image.source="https://github.com/rz467fzs7d/dsh-docker" \
+      org.opencontainers.image.version="${HOMELAB_DSH_VERSION}" \
+      org.opencontainers.image.revision="${SOURCE_REVISION}" \
+      io.homelab.dsh.npm-integrity="${HOMELAB_DSH_INTEGRITY}"
+RUN rm -rf /opt/dsh
+COPY --from=dsh-package --chown=node:node /opt/dsh /opt/dsh
+COPY --chmod=0755 entrypoint.sh /opt/homelab/entrypoint.sh
+COPY configure.py Caddyfile.template auth-portal.Caddyfile auth-routes.Caddyfile /opt/homelab/
+COPY profile.sh /etc/profile.d/zz-homelab-tools.sh

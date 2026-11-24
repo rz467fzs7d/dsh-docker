@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Resolve latest DSH on every build, then build the upstream workstation and adapter."""
+"""Install the newest official npm DSH release directly on the Docker host."""
 import argparse
 import json
 from pathlib import Path
@@ -8,47 +8,47 @@ import subprocess
 import tempfile
 
 HERE = Path(__file__).resolve().parent
-BUILDER = HERE.parent
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--tag', default='homelab/dsh:latest')
-    parser.add_argument('--platform', default='linux/amd64')
-    parser.add_argument('--receipt', type=Path, default=Path('dsh-build-receipt.json'))
-    args = parser.parse_args()
-    def run(argv, **kwargs):
-        return subprocess.run([str(a) for a in argv], check=True, **kwargs)
-    revision = run(['git', '-C', HERE.parents[1], 'rev-parse', 'HEAD'],
-                   text=True, capture_output=True).stdout.strip()
-    with tempfile.TemporaryDirectory(prefix='dsh-homelab-build-') as td:
-        context = Path(td) / 'image'
-        adapter = Path(td) / 'homelab'
-        shutil.copytree(BUILDER / 'image', context)
-        shutil.copytree(HERE, adapter, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
-        source_file = context / 'dsh-source.json'
-        run(['bash', BUILDER / 'scripts/resolve-dsh-source.sh', '--metadata-output', source_file,
-             '--github-output', '/dev/null'])
-        source = json.loads(source_file.read_text())
-        run(['bash', BUILDER / 'scripts/prepare-dsh-version.sh', '--image-dir', context,
-             '--version', source['version'], '--github-output', '/dev/null'])
-        output = run(['python3', BUILDER / 'scripts/component-inputs.py', '--image-dir', context,
-                      '--format', 'json'], text=True, capture_output=True)
-        inputs = json.loads(output.stdout)
-        command = ['docker', 'build', '--pull', '--platform', args.platform, '--target', 'workstation',
-                   '-t', 'homelab/dsh-upstream:build']
-        for key, value in inputs.items():
-            command += ['--build-arg', key + '=' + value]
-        run([*command, context])
-        run(['docker', 'build', '--platform', args.platform, '--build-arg',
-             'BASE_IMAGE=homelab/dsh-upstream:build', '--build-arg', 'SOURCE_REVISION=' + revision,
-             '--build-arg', 'DSH_VERSION=' + source['version'], '-t', args.tag, adapter])
-        image = json.loads(run(['docker', 'image', 'inspect', args.tag], text=True,
-                               capture_output=True).stdout)[0]
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--base-image', default='homelab/dsh:latest')
+    p.add_argument('--tag', default='homelab/dsh:upgrade')
+    p.add_argument('--platform', default='linux/amd64')
+    p.add_argument('--receipt', type=Path, default=Path('dsh-build-receipt.json'))
+    args = p.parse_args()
+    def run(argv, **kw):
+        return subprocess.run([str(a) for a in argv], check=True, **kw)
+    base = json.loads(run(['docker', 'image', 'inspect', args.base_image], text=True, capture_output=True).stdout)[0]
+    base_id = base['Id']
+    base_ref = 'homelab/dsh-build-base:' + base_id.split(':')[-1]
+    run(['docker', 'tag', base_id, base_ref])
+    with tempfile.TemporaryDirectory(prefix='dsh-package-build-') as td:
+        context = Path(td) / 'homelab'
+        shutil.copytree(HERE, context, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+        helper = ['docker', 'run', '--rm', '--network', 'bridge', '--no-healthcheck',
+                  '--memory', '512m', '--cpu-shares', '128', '-v', str(HERE.parents[1]) + ':/source:ro',
+                  '-v', td + ':/build', '--entrypoint', 'bash', base_id]
+        revision = run([*helper, '-c', 'git -c safe.directory=/source -C /source rev-parse HEAD'], text=True, capture_output=True).stdout.strip()
+        resolve = '''set -euo pipefail
+version="$(npm view @deepseek-ai/dsh versions --json --prefer-online --registry=https://registry.npmjs.org | node /source/deepseek-harness-builder/scripts/resolve-latest-npm-version.mjs)"
+npm view "@deepseek-ai/dsh@${version}" --json --prefer-online --registry=https://registry.npmjs.org > /build/npm-release.json
+'''
+        run([*helper, '-c', resolve])
+        metadata = json.loads((Path(td) / 'npm-release.json').read_text())
+        version = metadata['version'];integrity = metadata['dist']['integrity']
+        print(json.dumps({'version': version, 'integrity': integrity, 'engines': metadata.get('engines')}), flush=True)
+        run(['docker', 'build', '--platform', args.platform, '-f', context / 'Dockerfile.package',
+             '--build-arg', 'BASE_IMAGE=' + base_ref, '--build-arg', 'SOURCE_REVISION=' + revision,
+             '--build-arg', 'HOMELAB_DSH_VERSION=' + version,
+             '--build-arg', 'HOMELAB_DSH_INTEGRITY=' + integrity, '-t', args.tag, context])
+        image = json.loads(run(['docker', 'image', 'inspect', args.tag], text=True, capture_output=True).stdout)[0]
         args.receipt.parent.mkdir(parents=True, exist_ok=True)
-        args.receipt.write_text(json.dumps({'image': args.tag, 'id': image['Id'],
-                                           'platform': args.platform, 'revision': revision,
-                                           'dsh': source}, indent=2) + '\n')
+        args.receipt.write_text(json.dumps({'image': args.tag, 'id': image['Id'], 'configDigest': image['Id'],
+                                           'platform': args.platform, 'revision': revision, 'baseImage': base_id,
+                                           'buildMode': 'target-host-npm', 'dsh': {'version': version,
+                                           'package': '@deepseek-ai/dsh', 'tarball': metadata['dist']['tarball'],
+                                           'integrity': integrity, 'engines': metadata.get('engines')}}, indent=2) + '\n')
 
 
 if __name__ == '__main__':

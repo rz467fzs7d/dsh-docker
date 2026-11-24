@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parent
-spec = importlib.util.spec_from_file_location('homelab_build', HERE / 'build.py')
+spec = importlib.util.spec_from_file_location('homelab_build', HERE / 'build_source.py')
 build = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(build)
 
