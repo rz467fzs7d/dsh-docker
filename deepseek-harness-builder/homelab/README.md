@@ -20,6 +20,27 @@ when GitHub's anonymous API limit is exhausted. Supply an existing credential
 through your credential manager; do not embed it in a Docker build argument,
 command-line value or source file. The credential is not included in the image.
 
+## Build directly on an existing Docker host
+
+For a DSH-only update, reuse the installed workstation toolchain and compile the
+freshly resolved official DSH source on the target host:
+
+```sh
+DOCKER_BUILDKIT=1 python3 deepseek-harness-builder/homelab/build_incremental.py \
+  --base-image homelab/dsh:latest --tag homelab/dsh:upgrade \
+  --receipt /tmp/dsh-build-receipt.json
+python3 deepseek-harness-builder/homelab/smoke.py --image homelab/dsh:upgrade --auth-mode none
+```
+
+The target host needs Python 3 and Docker with BuildKit/Buildx. Short-lived bridge
+containers provide Git, Node and release-resolution tools from the existing image;
+they mount only the source and temporary context, never the Docker socket.
+The base config ID is frozen for the build, while DSH's latest non-draft release,
+commit and archive checksum are resolved again. The upstream source-build steps
+are reused, including native addon checks. Node/pnpm mismatches fail explicitly;
+use the full build above when updating the underlying workstation components.
+The candidate tag leaves the running image in place until deployment acceptance.
+
 ## Deployment contract
 
 - Publish the container's Caddy port 8080 as host port **3080** using bridge networking.
